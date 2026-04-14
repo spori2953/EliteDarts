@@ -1,0 +1,168 @@
+﻿.print-shell {
+    max-width: 1800px;
+    margin: 0 auto;
+    padding: 20px;
+    background: #fff;
+}
+
+.print-toolbar {
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+    margin-bottom: 18px;
+}
+
+.print-header {
+    border: 2px solid #111;
+    border-radius: 14px;
+    padding: 18px;
+    margin-bottom: 24px;
+    background: #fff;
+}
+
+.print-title {
+    font-size: 28px;
+    font-weight: 800;
+    margin-bottom: 6px;
+}
+
+.print-subtitle {
+    color: #666;
+    font-size: 15px;
+}
+
+.print-rounds {
+    overflow-x: auto;
+    overflow-y: visible;
+    padding-bottom: 12px;
+}
+
+.print-rounds-inner {
+    display: flex;
+    gap: 24px;
+    align-items: flex-start;
+    min-width: 1000px;
+}
+
+.print-round-col {
+    min-width: 300px;
+    flex: 0 0 300px;
+}
+
+.print-round-header {
+    margin-bottom: 14px;
+}
+
+.print-round-badge {
+    display: inline-block;
+    padding: 8px 12px;
+    border-radius: 10px;
+    background: #111;
+    color: #fff;
+    font-weight: 700;
+    font-size: 14px;
+    margin-bottom: 6px;
+}
+
+.print-match-list {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.print-match-card {
+    border: 2px solid #111;
+    border-radius: 12px;
+    padding: 14px;
+    background: #fff;
+    min-height: 150px;
+    box-shadow: 0 4px 14px rgba(0,0,0,.05);
+}
+
+.print-match-title {
+    font-weight: 700;
+    font-size: 17px;
+    margin-bottom: 6px;
+}
+
+.print-player-row {
+    padding: 9px 10px;
+    border-radius: 8px;
+    border: 1px solid #ddd;
+    background: #fff;
+    margin-top: 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+}
+
+    .print-player-row.winner {
+        border-color: #198754;
+        background: #e9f7ef;
+        font-weight: 700;
+    }
+
+.print-winner-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 26px;
+    height: 26px;
+    border-radius: 999px;
+    background: #198754;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.print-small {
+    color: #666;
+    font-size: 13px;
+}
+
+.print-result {
+    margin-top: 10px;
+    font-size: 14px;
+}
+
+@media print {
+    .print-toolbar {
+        display: none !important;
+    }
+
+    .elite-topbar {
+        display: none !important;
+    }
+
+    .elite-shell {
+        max-width: none !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+
+    .print-shell {
+        max-width: none;
+        padding: 0;
+    }
+
+    .print-rounds {
+        overflow: visible !important;
+    }
+
+    .print-rounds-inner {
+        gap: 14px;
+        min-width: auto;
+        align-items: flex-start;
+    }
+
+    .print-round-col {
+        min-width: 260px;
+        flex: 0 0 260px;
+    }
+
+    @page {
+        size: landscape;
+        margin: 10mm;
+    }
+}

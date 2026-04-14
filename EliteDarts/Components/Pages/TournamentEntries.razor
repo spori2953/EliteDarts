@@ -1,0 +1,311 @@
+﻿@page "/admin/verseny/{Id:int}/nevezesek"
+@using EliteDarts.Domain.Entities
+@using EliteDarts.Data
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+
+@inject ApplicationDbContext Db
+@inject NavigationManager Nav
+
+<h2>Nevezések kezelése</h2>
+
+@if (IsLoading)
+{
+    <p>Betöltés...</p>
+}
+else if (Tournament is null)
+{
+    <div class="alert alert-danger">Nem található ilyen verseny.</div>
+}
+else
+{
+    <div class="card p-3 mb-3">
+        <div class="d-flex justify-content-between align-items-center">
+            <div>
+                <h4 class="mb-1">@Tournament.Name</h4>
+                <div class="text-muted">@Tournament.Location • @Tournament.StartDate.ToString("yyyy.MM.dd")</div>
+            </div>
+            <button class="btn btn-outline-secondary" @onclick="BackToTournament">
+                Vissza a versenyhez
+            </button>
+        </div>
+    </div>
+
+    <div class="row g-3">
+        <div class="col-12 col-lg-5">
+            <div class="card p-3">
+                <h5>Új játékos felvétele</h5>
+
+                <div class="mb-2">
+                    <label class="form-label">Név</label>
+                    <input class="form-control" @bind="NewPlayerName" />
+                </div>
+
+                <div class="mb-2">
+                    <label class="form-label">Klub (opcionális)</label>
+                    <input class="form-control" @bind="NewPlayerClub" />
+                </div>
+
+                <button class="btn btn-primary" @onclick="CreatePlayer" disabled="@IsBusy">
+                    @(IsBusy ? "Mentés..." : "Játékos mentése")
+                </button>
+
+                @if (!string.IsNullOrWhiteSpace(PlayerCreateError))
+                {
+                    <div class="alert alert-danger mt-3">@PlayerCreateError</div>
+                }
+                @if (!string.IsNullOrWhiteSpace(PlayerCreateOk))
+                {
+                    <div class="alert alert-success mt-3">@PlayerCreateOk</div>
+                }
+            </div>
+
+            <div class="card p-3 mt-3">
+                <h5>Játékos keresése</h5>
+                <input class="form-control" placeholder="Keresés név alapján..."
+                       @bind="Search" @bind:event="oninput" />
+                <small class="text-muted">Tipp: pár betű is elég.</small>
+            </div>
+        </div>
+
+        <div class="col-12 col-lg-7">
+            <div class="card p-3 mb-3">
+                <h5>Nevezett játékosok (@Entries.Count)</h5>
+
+                @if (Entries.Count == 0)
+                {
+                    <div class="text-muted">Még nincs nevezés.</div>
+                }
+                else
+                {
+                    <table class="table table-sm align-middle">
+                        <thead>
+                            <tr>
+                                <th>Név</th>
+                                <th>Klub</th>
+                                <th style="width:120px;"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var e in Entries)
+                            {
+                                <tr>
+                                    <td>@e.Player.FullName</td>
+                                    <td class="text-muted">@e.Player.Club</td>
+                                    <td style="text-align:right;">
+                                        <button class="btn btn-outline-danger btn-sm"
+                                                @onclick="() => RemoveEntry(e.Id)" disabled="@IsBusy">
+                                            Kivesz
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </div>
+
+            <div class="card p-3">
+                <h5>Játékosok (globális lista)</h5>
+
+                @if (FilteredPlayers.Count == 0)
+                {
+                    <div class="text-muted">Nincs találat.</div>
+                }
+                else
+                {
+                    <table class="table table-sm align-middle">
+                        <thead>
+                            <tr>
+                                <th>Név</th>
+                                <th>Klub</th>
+                                <th style="width:140px;"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var p in FilteredPlayers)
+                            {
+                                var alreadyEntered = EntryPlayerIds.Contains(p.Id);
+
+                                <tr>
+                                    <td>@p.FullName</td>
+                                    <td class="text-muted">@p.Club</td>
+                                    <td style="text-align:right;">
+                                        <button class="btn btn-sm @(alreadyEntered ? "btn-secondary" : "btn-success")"
+                                                disabled="@(IsBusy || alreadyEntered)"
+                                                @onclick="() => AddEntry(p.Id)">
+                                            @(alreadyEntered ? "Nevezve" : "Nevezés")
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+
+                @if (!string.IsNullOrWhiteSpace(EntryError))
+                {
+                    <div class="alert alert-danger mt-3">@EntryError</div>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private bool IsLoading = true;
+    private bool IsBusy;
+
+    private Tournament? Tournament;
+
+    private List<Player> Players = new();
+    private List<Entry> Entries = new();
+
+    private HashSet<int> EntryPlayerIds = new();
+
+    private string Search = "";
+
+    private string NewPlayerName = "";
+    private string? NewPlayerClub;
+
+    private string? PlayerCreateError;
+    private string? PlayerCreateOk;
+
+    private string? EntryError;
+
+    private List<Player> FilteredPlayers =>
+        string.IsNullOrWhiteSpace(Search)
+            ? Players.Take(50).ToList()
+            : Players.Where(p => p.FullName.Contains(Search, StringComparison.OrdinalIgnoreCase))
+                     .Take(50)
+                     .ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Reload();
+        IsLoading = false;
+    }
+
+    private async Task Reload()
+    {
+        Tournament = await Db.Tournaments.FirstOrDefaultAsync(t => t.Id == Id);
+
+        Players = await Db.Players
+            .OrderBy(p => p.FullName)
+            .ToListAsync();
+
+        Entries = await Db.Entries
+            .Include(e => e.Player)
+            .Where(e => e.TournamentId == Id)
+            .OrderBy(e => e.Player.FullName)
+            .ToListAsync();
+
+        EntryPlayerIds = Entries.Select(e => e.PlayerId).ToHashSet();
+    }
+
+    private void BackToTournament()
+        => Nav.NavigateTo($"/admin/verseny/{Id}");
+
+    private async Task CreatePlayer()
+    {
+        PlayerCreateError = null;
+        PlayerCreateOk = null;
+
+        var name = (NewPlayerName ?? "").Trim();
+        if (name.Length < 3)
+        {
+            PlayerCreateError = "Adj meg legalább 3 karaktert a névhez.";
+            return;
+        }
+
+        // Duplikáció ellenőrzés (név alapján)
+        var exists = await Db.Players.AnyAsync(p => p.FullName == name);
+        if (exists)
+        {
+            PlayerCreateError = "Ilyen nevű játékos már létezik.";
+            return;
+        }
+
+        IsBusy = true;
+        try
+        {
+            Db.Players.Add(new Player
+            {
+                FullName = name,
+                Club = string.IsNullOrWhiteSpace(NewPlayerClub) ? null : NewPlayerClub.Trim()
+            });
+
+            await Db.SaveChangesAsync();
+
+            NewPlayerName = "";
+            NewPlayerClub = null;
+            PlayerCreateOk = "Játékos felvéve.";
+
+            await Reload();
+        }
+        catch (Exception ex)
+        {
+            PlayerCreateError = "Hiba történt mentés közben: " + ex.Message;
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private async Task AddEntry(int playerId)
+    {
+        EntryError = null;
+
+        if (EntryPlayerIds.Contains(playerId))
+            return;
+
+        IsBusy = true;
+        try
+        {
+            Db.Entries.Add(new Entry
+            {
+                TournamentId = Id,
+                PlayerId = playerId
+            });
+
+            await Db.SaveChangesAsync();
+            await Reload();
+        }
+        catch (Exception ex)
+        {
+            EntryError = "Nem sikerült a nevezés: " + ex.Message;
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private async Task RemoveEntry(int entryId)
+    {
+        EntryError = null;
+
+        IsBusy = true;
+        try
+        {
+            var entry = await Db.Entries.FirstOrDefaultAsync(e => e.Id == entryId);
+            if (entry is null) return;
+
+            Db.Entries.Remove(entry);
+            await Db.SaveChangesAsync();
+            await Reload();
+        }
+        catch (Exception ex)
+        {
+            EntryError = "Nem sikerült törölni: " + ex.Message;
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+}

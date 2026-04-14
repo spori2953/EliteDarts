@@ -1,0 +1,127 @@
+﻿@page "/tablet/{TournamentId:int}/{BoardNo:int}"
+@using EliteDarts.Data
+@using EliteDarts.Domain.Entities
+@using Microsoft.EntityFrameworkCore
+
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject NavigationManager Nav
+
+<h2>Tablet – Tábla @BoardNo</h2>
+
+@if (IsLoading)
+{
+    <p>Betöltés...</p>
+}
+else if (Tournament is null)
+{
+    <div class="alert alert-danger">Nem található ilyen verseny.</div>
+}
+else if (Board is null)
+{
+    <div class="alert alert-danger">Nem található ilyen tábla (@BoardNo) ehhez a versenyhez.</div>
+}
+else
+{
+    <div class="card p-3 mb-3">
+        <div class="d-flex justify-content-between align-items-center">
+            <div>
+                <div class="fw-semibold">@Tournament.Name</div>
+                <div class="text-muted">@Tournament.Location • @Tournament.StartDate.ToString("yyyy.MM.dd")</div>
+            </div>
+
+            <button class="btn btn-outline-secondary" @onclick="Load" disabled="@IsLoading">
+                Frissítés
+            </button>
+        </div>
+    </div>
+
+    @if (Matches.Count == 0)
+    {
+        <div class="alert alert-info">
+            Jelenleg nincs lejátszható meccs ezen a táblán.
+        </div>
+    }
+    else
+    {
+        <div style="display:flex; flex-direction:column; gap:10px;">
+            @foreach (var m in Matches)
+            {
+                <div class="card p-3">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div class="fw-semibold">
+                            @m.Player1!.FullName
+                            <span class="text-muted">vs</span>
+                            @m.Player2!.FullName
+                        </div>
+                        <span class="badge bg-dark">Kör @m.RoundNo</span>
+                    </div>
+
+                    <div class="text-muted mt-1">
+                        Best of @m.BestOfLegs
+                    </div>
+
+                    <div class="mt-2">
+                        <button class="btn btn-primary"
+                                @onclick="() => OpenMatch(m.Id)">
+                            Megnyitás
+                        </button>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public int TournamentId { get; set; }
+    [Parameter] public int BoardNo { get; set; }
+
+    private bool IsLoading = true;
+    private Tournament? Tournament;
+    private Board? Board;
+    private List<Match> Matches = new();
+
+     private void OpenMatch(int matchId)
+     {
+        Nav.NavigateTo($"/tablet/{TournamentId}/{BoardNo}/match/{matchId}");
+     }
+
+    protected override async Task OnInitializedAsync()
+        {
+    await Load();
+        }
+
+    private async Task Load()
+    {
+        IsLoading = true;
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+
+        Tournament = await db.Tournaments
+            .FirstOrDefaultAsync(t => t.Id == TournamentId);
+
+        Board = await db.Boards
+            .Where(b => b.TournamentId == TournamentId && b.BoardNumber == BoardNo)
+            .FirstOrDefaultAsync();
+
+        Matches.Clear();
+
+        if (Tournament is not null && Board is not null)
+        {
+            Matches = await db.Matches
+                .Where(m =>
+                    m.TournamentId == TournamentId &&
+                    m.BoardId == Board.Id &&
+                    m.Status != MatchStatus.Finished &&
+                    m.Player1Id != null &&
+                    m.Player2Id != null)
+                .Include(m => m.Player1)
+                .Include(m => m.Player2)
+                .OrderBy(m => m.RoundNo)
+                .ThenBy(m => m.Id)
+                .ToListAsync();
+        }
+
+        IsLoading = false;
+    }
+}

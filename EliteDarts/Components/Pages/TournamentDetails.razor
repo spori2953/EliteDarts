@@ -1,0 +1,122 @@
+﻿@page "/admin/verseny/{Id:int}"
+@using EliteDarts.Domain.Entities
+@using Microsoft.EntityFrameworkCore
+@using EliteDarts.Data
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+
+@inject ApplicationDbContext Db
+@inject NavigationManager Nav
+@inject EliteDarts.Services.BracketService BracketService
+
+<h2>Verseny admin</h2>
+
+@if (IsLoading)
+{
+    <p>Betöltés...</p>
+}
+else if (Tournament is null)
+{
+    <div class="alert alert-danger">Nem található ilyen verseny.</div>
+}
+else
+{
+    <div class="card p-3 mb-3">
+        <h4 class="mb-1">@Tournament.Name</h4>
+        <div class="text-muted">@Tournament.Location • @Tournament.StartDate.ToString("yyyy.MM.dd")</div>
+        <div class="mt-2">
+            <span class="badge bg-secondary">Játékmód: 501 DO</span>
+            <span class="badge bg-info text-dark">Státusz: @Tournament.Status</span>
+        </div>
+    </div>
+
+    <div class="card p-3 mb-3">
+        <h5>Táblák</h5>
+        <table class="table table-sm">
+            <thead>
+                <tr>
+                    <th>Tábla</th>
+                    <th>Állapot</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var b in Boards)
+                {
+                    <tr>
+                        <td>@b.BoardNumber</td>
+                        <td class="text-muted">Készen (még nincs meccs hozzárendelve)</td>
+                        <td style="text-align:right;">
+                            <button class="btn btn-outline-primary btn-sm" @onclick="() => OpenTablet(b.BoardNumber)">
+                                Tablet nézet
+                            </button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <div class="d-flex gap-2">
+        <button class="btn btn-outline-secondary" @onclick="GoToEntries">
+            Nevezések kezelése
+        </button>
+
+        <button class="btn btn-primary" @onclick="GenerateBracket" disabled="@IsBusy">
+            @(IsBusy ? "Generálás..." : "Sorsolás generálása")
+        </button>
+
+        @if (!string.IsNullOrWhiteSpace(Error))
+        {
+            <div class="alert alert-danger mt-3">@Error</div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private bool IsLoading = true;
+    private Tournament? Tournament;
+    private List<Board> Boards = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        Tournament = await Db.Tournaments.FirstOrDefaultAsync(t => t.Id == Id);
+        Boards = await Db.Boards
+            .Where(b => b.TournamentId == Id)
+            .OrderBy(b => b.BoardNumber)
+            .ToListAsync();
+
+        IsLoading = false;
+    }
+
+    private void GoToEntries()
+        => Nav.NavigateTo($"/admin/verseny/{Id}/nevezesek");
+
+    private void OpenTablet(int boardNumber)
+        => Nav.NavigateTo($"/tablet/{Id}/{boardNumber}");
+
+    private bool IsBusy;
+    private string? Error;
+
+    private async Task GenerateBracket()
+    {
+        Error = null;
+        IsBusy = true;
+
+        try
+        {
+            await BracketService.GenerateSingleElimWithByesAsync(Id);
+            Nav.NavigateTo($"/admin/verseny/{Id}/agrajz");
+        }
+        catch (Exception ex)
+        {
+            Error = ex.Message;
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+}

@@ -1,0 +1,110 @@
+﻿@page "/"
+@using EliteDarts.Domain.Entities
+@using EliteDarts.Services
+@using Microsoft.AspNetCore.Authorization
+
+@attribute [Authorize]
+
+@inject NavigationManager Nav
+@inject TournamentService TournamentService
+
+<PageTitle>EliteDarts</PageTitle>
+
+<h1>Üdvözöljük az EliteDarts oldalán!</h1>
+<h3>Tapasztalja meg velünk a professzionális versenyzés élményét!</h3>
+
+<div class="mt-3 d-flex gap-2 flex-wrap">
+    <button class="elite-btn elite-btn--green"
+            @onclick="CreateTournament">
+        Verseny létrehozása
+    </button>
+
+    <button class="elite-btn elite-btn--outline"
+            @onclick="GoToAllTournaments">
+        Összes verseny
+    </button>
+</div>
+
+<div class="elite-section-title mt-4">Legutóbbi versenyek</div>
+
+@if (IsLoading)
+{
+    <p>Betöltés...</p>
+}
+else if (!string.IsNullOrWhiteSpace(Error))
+{
+    <div class="alert alert-danger mt-3">@Error</div>
+}
+else if (RecentTournaments.Count == 0)
+{
+    <div class="elite-rowcard mt-3">
+        <div class="text-muted">Még nincs létrehozott versenyed.</div>
+    </div>
+}
+else
+{
+    <div class="mt-3" style="display:flex; flex-direction:column; gap:12px;">
+        @foreach (var t in RecentTournaments)
+        {
+            <div class="elite-rowcard">
+                <div class="elite-row">
+                    <div>
+                        <div style="font-size:20px; font-weight:700;">@t.Name</div>
+                        <div class="text-muted">
+                            @t.StartDate.ToString("yyyy.MM.dd") • @t.Location
+                        </div>
+                    </div>
+
+                    <div>
+                        <button class="elite-btn"
+                                @onclick="() => OpenTournament(t.Id)">
+                            Megnyitás
+                        </button>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private bool IsLoading = true;
+    private string? Error;
+    private List<Tournament> RecentTournaments = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Load();
+    }
+
+    private async Task Load()
+    {
+        IsLoading = true;
+        Error = null;
+
+        try
+        {
+            var all = await TournamentService.GetTournamentsAsync();
+
+            RecentTournaments = all
+                .OrderByDescending(t => t.StartDate)
+                .ThenByDescending(t => t.Id)
+                .Take(5)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            Error = "Hiba történt a versenyek betöltésekor: " + ex.Message;
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    private void CreateTournament() => Nav.NavigateTo("/admin/verseny-letrehozas");
+
+    private void GoToAllTournaments() => Nav.NavigateTo("/versenyek");
+
+    private void OpenTournament(int id) => Nav.NavigateTo($"/admin/verseny/{id}/agrajz");
+}

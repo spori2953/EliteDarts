@@ -1,0 +1,415 @@
+﻿@page "/admin/verseny/{Id:int}/agrajz"
+@using EliteDarts.Domain.Entities
+@using EliteDarts.Data
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Components.Authorization
+
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject NavigationManager Nav
+@inject EliteDarts.Services.MatchResultService MatchResultService
+@inject EliteDarts.Services.BoardAssignmentService BoardAssignmentService
+
+
+<h2>Ágrajz</h2>
+
+@if (IsLoading)
+{
+    <p>Betöltés...</p>
+}
+else if (Tournament is null)
+{
+    <div class="alert alert-danger">Nem található ilyen verseny.</div>
+}
+else if (Rounds.Count == 0)
+{
+    <div class="alert alert-warning">
+        Ehhez a versenyhez még nincs sorsolás.
+        <a href="@($"/admin/verseny/{Id}")">Vissza</a>
+    </div>
+}
+else
+{
+    <div class="card p-3 mb-3">
+        <div class="d-flex justify-content-between align-items-center">
+            <div>
+                <h4 class="mb-1">@Tournament.Name</h4>
+                <div class="text-muted">@Tournament.Location • @Tournament.StartDate.ToString("yyyy.MM.dd")</div>
+            </div>
+            <div class="d-flex gap-2">
+                <button class="btn btn-outline-secondary" @onclick="Back">Vissza</button>
+            </div>
+        </div>
+    </div>
+
+    <div style="overflow:auto; padding-bottom:10px;">
+        <div style="display:flex; gap:18px; min-width:900px;">
+            @foreach (var round in Rounds)
+            {
+                <div style="min-width:260px;">
+                    <div class="mb-2">
+                        <div class="d-flex justify-content-between align-items-center gap-2">
+                            <div>
+                                <span class="badge bg-dark">Kör: @RoundLabel(round.RoundNo)</span>
+                                <span class="text-muted ms-2">@round.Matches.Count meccs</span>
+                            </div>
+
+                            <div class="d-flex align-items-center gap-2">
+                                <span class="text-muted">Best of</span>
+
+                                <select class="form-select form-select-sm" style="width:110px;"
+                                        value="@RoundBestOf(round)"
+                                        @onchange="(e) => SetRoundBestOf(round.RoundNo, int.Parse(e.Value!.ToString()!))"
+                                        disabled="@IsBusy">
+                                    <option value="3">3</option>
+                                    <option value="5">5</option>
+                                    <option value="7">7</option>
+                                    <option value="9">9</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="display:flex; flex-direction:column; gap:10px;">
+                        @foreach (var m in round.Matches)
+                        {
+                            <div class="elite-rowcard">
+
+                                <div class="d-flex justify-content-between align-items-start gap-2">
+                                    <div>
+                                        <div class="fw-semibold">Meccs #@m.Id</div>
+                                        <div class="text-muted small">
+                                            Állapot: @m.Status
+                                            • Tábla: @(m.Board is null ? "-" : $"Tábla {m.Board.BoardNumber}")
+                                        </div>
+
+                                        @if (m.Status == MatchStatus.Finished && m.LegsPlayer1.HasValue && m.LegsPlayer2.HasValue)
+                                        {
+                                            <div class="text-muted small mt-1">
+                                                Eredmény: <strong>@m.LegsPlayer1 - @m.LegsPlayer2</strong>
+                                            </div>
+                                        }
+                                    </div>
+
+                                    @if (m.Status != MatchStatus.Finished)
+                                    {
+                                        <span class="badge bg-warning text-dark">Folyamatban</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-success">Kész</span>
+                                    }
+                                </div>
+
+                                <div class="mt-2" style="display:flex; flex-direction:column; gap:6px;">
+                                    @PlayerRow(m.Player1, m.Player1Id, isWinner: m.WinnerPlayerId == m.Player1Id)
+                                    @PlayerRow(m.Player2, m.Player2Id, isWinner: m.WinnerPlayerId == m.Player2Id)
+                                </div>
+
+                                @if (IsByeMatch(m))
+                                {
+                                    <div class="mt-2 text-muted small">
+                                        BYE – automatikus továbbjutás
+                                    </div>
+                                }
+
+                                @if (m.Status != MatchStatus.Finished)
+                                {
+                                    <div class="mt-3">
+
+                                        <div class="text-muted mb-1 small">Tábla hozzárendelés (admin):</div>
+                                        <select class="form-select form-select-sm" style="width: 180px;"
+                                                value="@(m.BoardId?.ToString() ?? "")"
+                                                @onchange="(e) => ChangeBoard(m.Id, e.Value?.ToString())"
+                                                disabled="@IsBusy">
+                                            <option value="">Nincs tábla</option>
+                                            @foreach (var b in Boards)
+                                            {
+                                                <option value="@b.Id">Tábla @b.BoardNumber</option>
+                                            }
+                                        </select>
+
+                                        @if (!IsByeMatch(m) && m.Player1Id.HasValue && m.Player2Id.HasValue)
+                                        {
+                                            <div class="mt-3">
+                                                <div class="text-muted mb-1 small">Eredmény rögzítése (legarány):</div>
+
+                                                <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                                                    <input type="number" class="elite-input" style="width:110px;"
+                                                           min="0" max="@WinLegs(m)"
+                                                           placeholder="P1" @bind="Edit[m.Id].P1" />
+
+                                                    <span class="text-muted">-</span>
+
+                                                    <input type="number" class="elite-input" style="width:110px;"
+                                                           min="0" max="@WinLegs(m)"
+                                                           placeholder="P2" @bind="Edit[m.Id].P2" />
+
+                                                    <button class="elite-btn" @onclick="() => SaveResult(m)" disabled="@IsBusy">
+                                                        Rögzítés
+                                                    </button>
+                                                </div>
+
+                                                @if (MatchErrors.TryGetValue(m.Id, out var err) && !string.IsNullOrWhiteSpace(err))
+                                                {
+                                                    <div class="alert alert-danger mt-2">@err</div>
+                                                }
+                                            </div>
+                                        }
+                                    </div>
+                                }
+
+                                @if (m.NextMatchId.HasValue)
+                                {
+                                    <div class="mt-2 text-muted small">
+                                        Tovább: #@m.NextMatchId (@(m.IsWinnerGoesToPlayer1 == true ? "Player1" : "Player2"))
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private bool IsLoading = true;
+    private Tournament? Tournament;
+
+    private List<RoundVm> Rounds = new();
+    private List<Board> Boards = new();
+
+    private string? GlobalError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        var userId = authState.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+        Tournament = await db.Tournaments
+            .FirstOrDefaultAsync(t => t.Id == Id && t.OwnerUserId == userId);
+
+        await ReloadBracket();
+        IsLoading = false;
+    }
+
+    private void Back() => Nav.NavigateTo($"/admin/verseny/{Id}");
+
+    private static bool IsByeMatch(Match m)
+    {
+        var has1 = m.Player1Id.HasValue;
+        var has2 = m.Player2Id.HasValue;
+        return has1 ^ has2;
+    }
+
+    private static string RoundLabel(int roundNo)
+    {
+        return roundNo switch
+        {
+            1 => "1. kör",
+            2 => "2. kör",
+            3 => "3. kör",
+            _ => $"{roundNo}. kör"
+        };
+    }
+
+    private RenderFragment PlayerRow(Player? p, int? playerId, bool isWinner) => builder =>
+    {
+        var name = p?.FullName ?? (playerId.HasValue ? "(betöltés alatt)" : "BYE");
+        var css = isWinner ? "border:1px solid #198754; background:#e9f7ef;" : "border:1px solid #ddd; background:#fff;";
+
+        builder.OpenElement(0, "div");
+        builder.AddAttribute(1, "style", $"padding:6px 8px; border-radius:8px; {css}");
+        builder.OpenElement(2, "div");
+        builder.AddAttribute(3, "style", "display:flex; justify-content:space-between; align-items:center; gap:10px;");
+
+        builder.OpenElement(4, "span");
+        builder.AddContent(5, name);
+        builder.CloseElement();
+
+        if (isWinner)
+        {
+            builder.OpenElement(6, "span");
+            builder.AddAttribute(7, "class", "badge bg-success");
+            builder.AddContent(8, "W");
+            builder.CloseElement();
+        }
+
+        builder.CloseElement();
+        builder.CloseElement();
+    };
+
+    private bool IsBusy;
+    private Dictionary<int, string?> MatchErrors = new();
+
+    // meccsenként tároljuk az inputokat
+    private Dictionary<int, EditVm> Edit = new();
+
+    private async Task SaveResult(Match m)
+    {
+        MatchErrors[m.Id] = null;
+
+        IsBusy = true;
+        try
+        {
+            if (!Edit.ContainsKey(m.Id))
+                Edit[m.Id] = new EditVm();
+
+            var legs1 = Edit[m.Id].P1;
+            var legs2 = Edit[m.Id].P2;
+
+            await MatchResultService.FinishMatchByLegsAsync(m.Id, legs1, legs2);
+            await ReloadBracket();
+        }
+        catch (Exception ex)
+        {
+            MatchErrors[m.Id] = ex.Message;
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private async Task ReloadBracket()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        var userId = authState.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+        Tournament = await db.Tournaments
+            .FirstOrDefaultAsync(t => t.Id == Id && t.OwnerUserId == userId);
+
+        if (Tournament is null)
+        {
+            Boards = new();
+            Rounds = new();
+            return;
+        }
+
+        Boards = await db.Boards
+            .Where(b => b.TournamentId == Id)
+            .OrderBy(b => b.BoardNumber)
+            .ToListAsync();
+
+        var matches = await db.Matches
+            .Where(m => m.TournamentId == Id)
+            .Include(m => m.Player1)
+            .Include(m => m.Player2)
+            .Include(m => m.Board)
+            .OrderBy(m => m.RoundNo)
+            .ThenBy(m => m.Id)
+            .ToListAsync();
+
+        Rounds = matches
+            .GroupBy(m => m.RoundNo)
+            .OrderBy(g => g.Key)
+            .Select(g => new RoundVm(g.Key, g.ToList()))
+            .ToList();
+
+        foreach (var match in matches)
+        {
+            if (!Edit.ContainsKey(match.Id))
+                Edit[match.Id] = new EditVm();
+
+            if (!MatchErrors.ContainsKey(match.Id))
+                MatchErrors[match.Id] = null;
+        }
+    }
+
+    private async Task SetRoundBestOf(int roundNo, int bestOf)
+    {
+        GlobalError = null;
+        IsBusy = true;
+
+        try
+        {
+            if (bestOf < 1 || bestOf % 2 == 0)
+                throw new Exception("A Best of értéknek páratlannak kell lennie (3,5,7...).");
+
+            await using var db = await DbFactory.CreateDbContextAsync();
+
+            var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+            var userId = authState.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+            var tournament = await db.Tournaments
+                .FirstOrDefaultAsync(t => t.Id == Id && t.OwnerUserId == userId);
+
+            if (tournament is null)
+                throw new Exception("A verseny nem található vagy nincs jogosultságod hozzá.");
+
+            var matches = await db.Matches
+                .Where(m => m.TournamentId == Id && m.RoundNo == roundNo && m.Status != MatchStatus.Finished)
+                .ToListAsync();
+
+            foreach (var m in matches)
+                m.BestOfLegs = bestOf;
+
+            await db.SaveChangesAsync();
+            await ReloadBracket();
+        }
+        catch (Exception ex)
+        {
+            GlobalError = ex.Message;
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private static int WinLegs(Match m)
+    {
+        var bestOf = m.BestOfLegs <= 0 ? 5 : m.BestOfLegs;
+        return (bestOf / 2) + 1; // BO5 -> 3
+    }
+
+    private int RoundBestOf(RoundVm round)
+    {
+        var bestOf = round.Matches.FirstOrDefault()?.BestOfLegs ?? 5;
+        return bestOf <= 0 ? 5 : bestOf;
+    }
+
+    private async Task ChangeBoard(int matchId, string? boardIdStr)
+    {
+        GlobalError = null;
+        IsBusy = true;
+
+        try
+        {
+            int? boardId = null;
+            if (!string.IsNullOrWhiteSpace(boardIdStr))
+                boardId = int.Parse(boardIdStr);
+
+            await BoardAssignmentService.SetMatchBoardAsync(matchId, boardId);
+            await ReloadBracket();
+        }
+        catch (Exception ex)
+        {
+            GlobalError = ex.Message;
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private class EditVm
+    {
+        public int P1 { get; set; }
+        public int P2 { get; set; }
+    }
+
+    private record RoundVm(int RoundNo, List<Match> Matches);
+}

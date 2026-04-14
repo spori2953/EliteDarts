@@ -1,0 +1,126 @@
+﻿@page "/versenyek"
+@using EliteDarts.Domain.Entities
+@using EliteDarts.Services
+@using Microsoft.AspNetCore.Authorization
+
+@attribute [Authorize]
+
+@inject NavigationManager Nav
+@inject TournamentService TournamentService
+
+<PageTitle>Összes verseny</PageTitle>
+
+<div class="elite-h1">Összes verseny</div>
+
+<div class="mb-3">
+    <button class="elite-btn elite-btn--outline" @onclick="BackToHome">
+        Vissza a főoldalra
+    </button>
+</div>
+
+@if (IsLoading)
+{
+    <p>Betöltés...</p>
+}
+else if (!string.IsNullOrWhiteSpace(Error))
+{
+    <div class="alert alert-danger">@Error</div>
+}
+else if (Tournaments.Count == 0)
+{
+    <div class="elite-rowcard">
+        <div class="text-muted">Még nincs létrehozott versenyed.</div>
+    </div>
+}
+else
+{
+    <div style="display:flex; flex-direction:column; gap:12px;">
+        @foreach (var t in Tournaments)
+        {
+            <div class="elite-rowcard">
+                <div class="elite-row" style="align-items:center;">
+                    <div style="flex:1;">
+                        <div style="font-size:22px; font-weight:700; margin-bottom:4px;">
+                            @t.Name
+                        </div>
+
+                        <div class="text-muted" style="font-size:15px;">
+                            @t.StartDate.ToString("yyyy.MM.dd") • @t.Location
+                        </div>
+                    </div>
+
+                    <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                        <button class="elite-btn"
+                                @onclick="() => OpenTournament(t.Id)">
+                            Megnyitás
+                        </button>
+
+                        <a class="elite-btn elite-btn--outline"
+                           href="@($"/admin/verseny/{t.Id}/agrajz/print")"
+                           target="_blank">
+                            PDF export
+                        </a>
+
+                        <button class="elite-btn elite-btn--red"
+                                @onclick="() => DeleteTournament(t.Id)">
+                            Törlés
+                        </button>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private bool IsLoading = true;
+    private string? Error;
+    private List<Tournament> Tournaments = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Load();
+    }
+
+    private async Task Load()
+    {
+        IsLoading = true;
+        Error = null;
+
+        try
+        {
+            Tournaments = await TournamentService.GetTournamentsAsync();
+            Tournaments = Tournaments
+                .OrderByDescending(t => t.StartDate)
+                .ThenByDescending(t => t.Id)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            Error = "Hiba történt a versenyek betöltésekor: " + ex.Message;
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    private void BackToHome() => Nav.NavigateTo("/");
+
+    private void OpenTournament(int id) => Nav.NavigateTo($"/admin/verseny/{id}/agrajz");
+
+    private async Task DeleteTournament(int id)
+    {
+        Error = null;
+
+        try
+        {
+            await TournamentService.DeleteTournamentAsync(id);
+            await Load();
+        }
+        catch (Exception ex)
+        {
+            Error = "Hiba történt a törléskor: " + ex.Message;
+        }
+    }
+}

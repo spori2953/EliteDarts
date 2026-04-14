@@ -1,0 +1,29 @@
+﻿@page "/Account/Logout"
+@using Microsoft.AspNetCore.Identity
+@using EliteDarts.Data
+@inject SignInManager<ApplicationUser> SignInManager
+@inject NavigationManager Nav
+
+<div class="elite-shell">
+    <div style="display:flex; justify-content:center; margin-top:120px;">
+        <div class="elite-login-card" style="text-align:center;">
+            <div class="elite-login-title">
+                Kijelentkeztetés...
+            </div>
+            <div class="text-muted mt-2">
+                Egy pillanat...
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    protected override async Task OnInitializedAsync()
+    {
+        await SignInManager.SignOutAsync();
+
+        await Task.Delay(500);
+
+        Nav.NavigateTo("/Account/Login", forceLoad: true);
+    }
+}

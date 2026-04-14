@@ -1,0 +1,216 @@
+﻿@page "/admin/verseny/{Id:int}/agrajz/print"
+@using System.Security.Claims
+@using EliteDarts.Data
+@using EliteDarts.Domain.Entities
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.EntityFrameworkCore
+
+@attribute [Authorize]
+
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+
+<PageTitle>Ágrajz export</PageTitle>
+
+@if (IsLoading)
+{
+    <p>Betöltés...</p>
+}
+else if (Tournament is null)
+{
+    <div class="alert alert-danger">Nem található ilyen verseny, vagy nincs jogosultságod hozzá.</div>
+}
+else if (Rounds.Count == 0)
+{
+    <div class="alert alert-warning">Ehhez a versenyhez még nincs sorsolás.</div>
+}
+else
+{
+    <div class="print-shell">
+        <div class="print-toolbar">
+            <button class="elite-btn elite-btn--outline" @onclick="Back">
+                Vissza
+            </button>
+            <button class="elite-btn elite-btn--green" @onclick="Print">
+                Nyomtatás / Mentés PDF-be
+            </button>
+        </div>
+
+        <div class="print-header">
+            <div class="print-title">@Tournament.Name</div>
+            <div class="print-subtitle">
+                @Tournament.Location • @Tournament.StartDate.ToString("yyyy.MM.dd")
+            </div>
+        </div>
+
+        <div class="print-rounds">
+            <div class="print-rounds-inner">
+                @foreach (var round in Rounds)
+                {
+                    <div class="print-round-col">
+                        <div class="print-round-header">
+                            <div class="print-round-badge">@RoundLabel(round.RoundNo)</div>
+                            <div class="print-small">
+                                @round.Matches.Count meccs • Best of @RoundBestOf(round)
+                            </div>
+                        </div>
+
+                        <div class="print-match-list">
+                            @foreach (var m in round.Matches)
+                            {
+                                <div class="print-match-card">
+                                    <div class="print-match-title">
+                                        Meccs #@m.Id
+                                    </div>
+
+                                    <div class="print-small">
+                                        Állapot: @m.Status
+                                        • Tábla: @(m.Board is null ? "-" : $"Tábla {m.Board.BoardNumber}")
+                                    </div>
+
+                                    <div class="print-player-row @(m.WinnerPlayerId == m.Player1Id ? "winner" : "")">
+                                        <span>@GetPlayerName(m.Player1, m.Player1Id)</span>
+                                        @if (m.WinnerPlayerId == m.Player1Id)
+                                        {
+                                            <span class="print-winner-badge">W</span>
+                                        }
+                                    </div>
+
+                                    <div class="print-player-row @(m.WinnerPlayerId == m.Player2Id ? "winner" : "")">
+                                        <span>@GetPlayerName(m.Player2, m.Player2Id)</span>
+                                        @if (m.WinnerPlayerId == m.Player2Id)
+                                        {
+                                            <span class="print-winner-badge">W</span>
+                                        }
+                                    </div>
+
+                                    @if (IsByeMatch(m))
+                                    {
+                                        <div class="print-small" style="margin-top:8px;">
+                                            BYE – automatikus továbbjutás
+                                        </div>
+                                    }
+
+                                    @if (m.Status == MatchStatus.Finished && m.LegsPlayer1.HasValue && m.LegsPlayer2.HasValue)
+                                    {
+                                        <div class="print-result">
+                                            Eredmény: <strong>@m.LegsPlayer1 - @m.LegsPlayer2</strong>
+                                        </div>
+                                    }
+
+                                    @if (m.NextMatchId.HasValue)
+                                    {
+                                        <div class="print-small" style="margin-top:8px;">
+                                            Tovább: #@m.NextMatchId
+                                            (@(m.IsWinnerGoesToPlayer1 == true ? "Player1" : "Player2"))
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private bool IsLoading = true;
+    private Tournament? Tournament;
+    private List<RoundVm> Rounds = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Load();
+    }
+
+    private async Task Load()
+    {
+        IsLoading = true;
+
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        var userId = authState.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+        if (string.IsNullOrWhiteSpace(userId))
+        {
+            Tournament = null;
+            Rounds = new();
+            IsLoading = false;
+            return;
+        }
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+
+        Tournament = await db.Tournaments
+            .FirstOrDefaultAsync(t => t.Id == Id && t.OwnerUserId == userId);
+
+        if (Tournament is null)
+        {
+            Rounds = new();
+            IsLoading = false;
+            return;
+        }
+
+        var matches = await db.Matches
+            .Where(m => m.TournamentId == Id)
+            .Include(m => m.Player1)
+            .Include(m => m.Player2)
+            .Include(m => m.Board)
+            .OrderBy(m => m.RoundNo)
+            .ThenBy(m => m.Id)
+            .ToListAsync();
+
+        Rounds = matches
+            .GroupBy(m => m.RoundNo)
+            .OrderBy(g => g.Key)
+            .Select(g => new RoundVm(g.Key, g.ToList()))
+            .ToList();
+
+        IsLoading = false;
+    }
+
+    private async Task Print()
+    {
+        await JS.InvokeVoidAsync("print");
+    }
+
+    private void Back()
+    {
+        Nav.NavigateTo($"/admin/verseny/{Id}/agrajz");
+    }
+
+    private static bool IsByeMatch(Match m)
+    {
+        var has1 = m.Player1Id.HasValue;
+        var has2 = m.Player2Id.HasValue;
+        return has1 ^ has2;
+    }
+
+    private static string GetPlayerName(Player? p, int? playerId)
+    {
+        return p?.FullName ?? (playerId.HasValue ? "(betöltés alatt)" : "BYE");
+    }
+
+    private static string RoundLabel(int roundNo) => roundNo switch
+    {
+        1 => "1. kör",
+        2 => "2. kör",
+        3 => "3. kör",
+        _ => $"{roundNo}. kör"
+    };
+
+    private static int RoundBestOf(RoundVm round)
+    {
+        var bestOf = round.Matches.FirstOrDefault()?.BestOfLegs ?? 5;
+        return bestOf <= 0 ? 5 : bestOf;
+    }
+
+    private record RoundVm(int RoundNo, List<Match> Matches);
+}

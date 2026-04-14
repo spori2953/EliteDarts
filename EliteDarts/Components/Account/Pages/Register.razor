@@ -1,0 +1,84 @@
+﻿@page "/Account/Register"
+@using Microsoft.AspNetCore.Components
+
+<div class="elite-shell">
+    <div style="display:flex; justify-content:center; margin-top:70px;">
+        <div class="elite-login-card">
+            <div class="elite-login-title">
+                Regisztráció
+            </div>
+
+            @if (!string.IsNullOrWhiteSpace(ErrorMessage))
+            {
+                <div class="alert alert-danger mb-3">@ErrorMessage</div>
+            }
+
+            <form method="post" action="/account/register">
+                <AntiforgeryToken />
+
+                <div class="mb-3">
+                    <input class="elite-input elite-login-input"
+                           placeholder="Felhasználónév"
+                           name="UserName" />
+                </div>
+
+                <div class="mb-3">
+                    <input class="elite-input elite-login-input"
+                           placeholder="Email cím"
+                           name="Email" />
+                </div>
+
+                <div class="mb-3">
+                    <input class="elite-input elite-login-input"
+                           placeholder="Jelszó"
+                           type="password"
+                           name="Password" />
+                </div>
+
+                <div class="mb-3">
+                    <input class="elite-input elite-login-input"
+                           placeholder="Jelszó megerősítése"
+                           type="password"
+                           name="ConfirmPassword" />
+                </div>
+
+                <div style="display:flex; justify-content:center;">
+                    <button type="submit"
+                            class="elite-btn elite-btn--green elite-login-btn">
+                        Regisztráció
+                    </button>
+                </div>
+            </form>
+
+            <div style="display:flex; justify-content:center; margin-top:22px;">
+                <a class="elite-btn elite-btn--outline elite-login-btn"
+                   href="/Account/Login"
+                   style="display:inline-flex; align-items:center; justify-content:center;">
+                    Vissza a bejelentkezéshez
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "error")]
+    public string? Error { get; set; }
+
+    private string? ErrorMessage;
+
+    protected override void OnParametersSet()
+    {
+        ErrorMessage = Error switch
+        {
+            "missing" => "Minden mezőt ki kell tölteni.",
+            "nomatch" => "A két jelszó nem egyezik.",
+            "exists" => "Ez az email cím már regisztrálva van.",
+            "userexists" => "Ez a felhasználónév már foglalt.",
+            "PasswordTooShort" => "A jelszó túl rövid.",
+            "DuplicateUserName" => "Ez a felhasználónév már foglalt.",
+            "DuplicateEmail" => "Ez az email cím már használatban van.",
+            _ => "A regisztráció nem sikerült."
+        };
+    }
+}

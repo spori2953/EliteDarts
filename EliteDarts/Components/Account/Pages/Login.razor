@@ -1,0 +1,75 @@
+﻿@page "/Account/Login"
+@using Microsoft.AspNetCore.Components
+
+<div class="elite-shell">
+    
+    <div style="display:flex; justify-content:center; margin-top:70px;">
+        <div class="elite-login-card">
+            <div class="elite-login-title">
+                Bejelentkezés
+            </div>
+
+            @if (!string.IsNullOrWhiteSpace(ErrorMessage))
+            {
+                <div class="alert alert-danger mb-3">@ErrorMessage</div>
+            }
+
+            <form method="post" action="/account/login">
+                <AntiforgeryToken />
+
+                <div class="mb-3">
+                    <input class="elite-input elite-login-input"
+                           placeholder="Email cím"
+                           name="Email" />
+                </div>
+
+                <div class="mb-3">
+                    <input class="elite-input elite-login-input"
+                           placeholder="Jelszó"
+                           type="password"
+                           name="Password" />
+                </div>
+
+                <div style="display:flex; justify-content:center;">
+                    <button type="submit"
+                            class="elite-btn elite-btn--green elite-login-btn">
+                        Belépés
+                    </button>
+                </div>
+            </form>
+
+            <div style="display:flex; justify-content:center; margin:22px 0;">
+                <a class="elite-btn elite-btn--outline elite-login-btn"
+                   href="/Account/ForgotPassword"
+                   style="display:inline-flex; align-items:center; justify-content:center;">
+                    Elfelejtett jelszó
+                </a>
+            </div>
+
+            <div style="display:flex; justify-content:center;">
+                <a class="elite-btn elite-login-btn"
+                   href="/Account/Register"
+                   style="display:inline-flex; align-items:center; justify-content:center;">
+                    Regisztráció
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "error")]
+    public string? Error { get; set; }
+
+    private string? ErrorMessage;
+
+    protected override void OnParametersSet()
+    {
+        ErrorMessage = Error switch
+        {
+            "missing" => "Add meg az email címet és a jelszót.",
+            "bad" => "Hibás email cím vagy jelszó.",
+            _ => null
+        };
+    }
+}

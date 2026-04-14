@@ -1,0 +1,88 @@
+﻿@page "/admin/verseny-letrehozas"
+@using EliteDarts.Services
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@inject TournamentService TournamentService
+@inject NavigationManager Nav
+
+
+<h2>Verseny létrehozása</h2>
+
+<div class="elite-h1">Verseny létrehozása</div>
+
+<div class="elite-form">
+    <div class="mb-3">
+        <label class="form-label">Verseny neve</label>
+        <input class="elite-input" @bind="Model.Name" />
+    </div>
+
+    <div class="mb-3">
+        <label class="form-label">Verseny dátuma</label>
+        <input class="elite-input" type="date" @bind="Model.Date" />
+    </div>
+
+    <div class="mb-3">
+        <label class="form-label">Helyszín</label>
+        <input class="elite-input" @bind="Model.Location" />
+    </div>
+
+    <div style="display:flex; justify-content:center; margin-top:18px;">
+        <button class="elite-btn" @onclick="Create" disabled="@IsBusy">
+            @(IsBusy ? "Létrehozás..." : "Létrehozás")
+        </button>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(Error))
+    {
+        <div class="alert alert-danger mt-3">@Error</div>
+    }
+</div>
+
+@code {
+    private bool IsBusy;
+    private string? Error;
+
+    private CreateTournamentModel Model = new()
+    {
+        Date = DateTime.Today
+    };
+
+    private async Task Create()
+    {
+        Error = null;
+
+        if (string.IsNullOrWhiteSpace(Model.Name) || Model.Name.Trim().Length < 3)
+        {
+            Error = "Add meg a verseny nevét (legalább 3 karakter).";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(Model.Location))
+        {
+            Error = "Add meg a helyszínt.";
+            return;
+        }
+
+        IsBusy = true;
+        try
+        {
+            var id = await TournamentService.CreateTournamentAsync(Model.Name, Model.Date, Model.Location);
+            Nav.NavigateTo($"/admin/verseny/{id}");
+        }
+        catch (Exception ex)
+        {
+            Error = "Hiba történt a létrehozáskor: " + ex.Message;
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private class CreateTournamentModel
+    {
+        public string Name { get; set; } = "";
+        public DateTime Date { get; set; }
+        public string Location { get; set; } = "";
+    }
+}

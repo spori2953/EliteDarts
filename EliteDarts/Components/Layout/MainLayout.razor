@@ -1,0 +1,64 @@
+﻿@inherits LayoutComponentBase
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.EntityFrameworkCore
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Identity
+@using EliteDarts.Data
+
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject UserManager<ApplicationUser> UserManager
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+
+<div class="elite-shell">
+    <div class="elite-topbar">
+        <div class="elite-topbar__left">
+            <AuthorizeView>
+                <Authorized>
+                    <a class="elite-btn elite-btn--red" href="/Account/Logout">Kijelentkezés</a>
+                </Authorized>
+                <NotAuthorized>
+                    <a class="elite-btn elite-btn--green" href="/Account/Login">Bejelentkezés</a>
+                </NotAuthorized>
+            </AuthorizeView>
+        </div>
+
+        <div class="elite-topbar__title">EliteDarts</div>
+
+        <div class="elite-topbar__right">
+            <AuthorizeView>
+                <Authorized>
+                    <span class="elite-user-badge">@DisplayName</span>
+                </Authorized>
+            </AuthorizeView>
+        </div>
+    </div>
+
+    @Body
+</div>
+
+@code {
+    private string DisplayName = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        var principal = authState.User;
+
+        if (principal.Identity?.IsAuthenticated != true)
+            return;
+
+        var userId = principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrWhiteSpace(userId))
+            return;
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+
+        var user = await db.Users.FirstOrDefaultAsync(x => x.Id == userId);
+        if (user is not null)
+        {
+            DisplayName = !string.IsNullOrWhiteSpace(user.DisplayName)
+                ? user.DisplayName
+                : user.Email ?? "";
+        }
+    }
+}

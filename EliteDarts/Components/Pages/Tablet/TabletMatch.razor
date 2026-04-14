@@ -1,0 +1,1475 @@
+﻿@page "/tablet/{TournamentId:int}/{BoardNo:int}/match/{MatchId:int}"
+@using EliteDarts.Data
+@using EliteDarts.Domain.Entities
+@using EliteDarts.Entities
+@using EliteDarts.Services
+@using Microsoft.EntityFrameworkCore
+
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject ScoreService ScoreService
+@inject NavigationManager Nav
+@inject MatchPlayService MatchPlayService
+@inject CvIntegrationService CvService
+@inject MatchStatisticsService MatchStatisticsService
+
+
+<h2>Meccs – Tábla @BoardNo</h2>
+
+@if (IsLoading)
+{
+    <p>Betöltés...</p>
+}
+else if (Match is null || Board is null)
+{
+    <div class="alert alert-danger">A meccs vagy a tábla nem található / nem ehhez a táblához tartozik.</div>
+}
+else if (Match.Player1Id is null || Match.Player2Id is null || Match.Player1 is null || Match.Player2 is null)
+{
+    <div class="alert alert-warning">
+        Ez a meccs még nem teljes (BYE vagy nincs meg mindkét játékos). Tablet nézeten csak akkor jelenjen meg, ha mindkét játékos ismert.
+    </div>
+
+    <button class="btn btn-outline-secondary" @onclick="Back">Vissza</button>
+}
+else
+{
+    <div class="card p-3 mb-3">
+        <div class="fw-semibold">
+            @Match.Player1.FullName <span class="text-muted">vs</span> @Match.Player2.FullName
+        </div>
+        <div class="mt-1">
+            <span class="badge text-bg-success">@(Match.LegsPlayer1 ?? 0)</span>
+            <span class="badge text-bg-success ms-2">@(Match.LegsPlayer2 ?? 0)</span>
+        </div>
+        <div class="text-muted mt-1">
+            Kör @Match.RoundNo • Best of @Match.BestOfLegs • Leg: @Match.CurrentLegNo
+        </div>
+
+        <div class="mt-2 d-flex gap-2 flex-wrap">
+            <button class="btn btn-outline-secondary" @onclick="Back">Vissza</button>
+            <button class="btn btn-outline-secondary" @onclick="Load">Frissítés</button>
+        </div>
+
+        <div class="text-muted mt-1">
+            Állapot: <strong>@Match.Status</strong>
+        </div>
+    </div>
+
+
+        var currentPlayerId = GetCurrentThrowerId();
+        var p1Active = currentPlayerId == Match.Player1Id.Value;
+        var p2Active = currentPlayerId == Match.Player2Id.Value;
+
+        var p1Remaining = GetRemaining(Match.Player1Id.Value);
+        var p2Remaining = GetRemaining(Match.Player2Id.Value);
+
+        var p1Visits = GetVisits(Match.Player1Id.Value);
+        var p2Visits = GetVisits(Match.Player2Id.Value);
+
+
+    <div class="tablet-players">
+        <!-- Player 1 -->
+        <div class="tablet-player-col">
+            <div class="player-card @(p1Active ? "active" : "inactive")">
+                <div class="player-header">
+                    <div>
+                        <div class="player-name">@Match.Player1.FullName</div>
+                        <div class="sub">
+                            @(p1Active ? "Ő következik" : "Várakozik")
+                        </div>
+                    </div>
+
+                    <div class="text-end">
+                        <div class="sub">Hátralévő</div>
+                        <div class="remain">@p1Remaining</div>
+                    </div>
+                </div>
+
+                @if (Match.InputMode == MatchInputMode.VisitTotal)
+                {
+                    <div class="elite-keypad-wrap">
+                        <div class="sub mb-2">Visit pont</div>
+
+                        <div class="elite-keypad-display">
+                            @(VisitTotal?.ToString() ?? "")
+                        </div>
+
+                        <div class="elite-keypad-grid">
+                            <button class="elite-keypad-btn" @onclick="() => AppendVisitDigit(1)" disabled="@(!p1Active || IsBusy)">1</button>
+                            <button class="elite-keypad-btn" @onclick="() => AppendVisitDigit(2)" disabled="@(!p1Active || IsBusy)">2</button>
+                            <button class="elite-keypad-btn" @onclick="() => AppendVisitDigit(3)" disabled="@(!p1Active || IsBusy)">3</button>
+
+                            <button class="elite-keypad-btn" @onclick="() => AppendVisitDigit(4)" disabled="@(!p1Active || IsBusy)">4</button>
+                            <button class="elite-keypad-btn" @onclick="() => AppendVisitDigit(5)" disabled="@(!p1Active || IsBusy)">5</button>
+                            <button class="elite-keypad-btn" @onclick="() => AppendVisitDigit(6)" disabled="@(!p1Active || IsBusy)">6</button>
+
+                            <button class="elite-keypad-btn" @onclick="() => AppendVisitDigit(7)" disabled="@(!p1Active || IsBusy)">7</button>
+                            <button class="elite-keypad-btn" @onclick="() => AppendVisitDigit(8)" disabled="@(!p1Active || IsBusy)">8</button>
+                            <button class="elite-keypad-btn" @onclick="() => AppendVisitDigit(9)" disabled="@(!p1Active || IsBusy)">9</button>
+
+                            <button class="elite-keypad-btn" @onclick="() => AppendVisitDigit(0)" disabled="@(!p1Active || IsBusy)">0</button>
+                            <button class="elite-keypad-btn elite-keypad-btn--warn" @onclick="BackspaceVisit" disabled="@(!p1Active || IsBusy)">←</button>
+                            <button class="elite-keypad-btn elite-keypad-btn--warn" @onclick="ClearVisit" disabled="@(!p1Active || IsBusy)">CLR</button>
+                        </div>
+
+                        <div class="elite-keypad-quick">
+                            @foreach (var v in QuickVisits)
+                            {
+                                <button class="elite-btn elite-btn--outline"
+                                        @onclick="() => SetQuickVisit(v)"
+                                        disabled="@(!p1Active || IsBusy)">
+                                    @v
+                                </button>
+                            }
+                        </div>
+
+                        <div class="mt-3">
+                            <button class="elite-btn elite-btn--green w-100"
+                                    @onclick="SubmitVisit"
+                                    disabled="@((IsBusy) || (!p1Active))">
+                                Visit mentése
+                            </button>
+                        </div>
+                    </div>
+                }
+                else if (Match.InputMode == MatchInputMode.Camera)
+                {
+                    <div class="mt-3">
+                        <button class="btn @(p1Active ? "btn-primary" : "btn-outline-secondary") w-100 py-3 fw-bold fs-5"
+                                @onclick="() => StartCameraTurn()"
+                                disabled="@(IsBusy || !p1Active || Match.PendingCheckoutConfirm)">
+                            @if (IsBusy && p1Active)
+                            {
+                                <span class="spinner-border spinner-border-sm me-2"></span> 
+                                @("Kamera figyel, dobhatsz!")
+                            }
+                            else
+                            {
+                                @("Kamera indítása - Kör megkezdése")
+                            }
+                        </button>
+                        @if (p1Active && Match.PendingCheckoutConfirm)
+                        {
+                            <div class="text-danger mt-1 small">Előbb igazold vissza a kiszállót!</div>
+                        }
+                    </div>
+
+                    <div class="mt-3 d-flex gap-2 flex-wrap">
+                        <button class="btn btn-sm btn-outline-danger" @onclick="() => UndoLastDart()" disabled="@IsBusy">
+                            ↩ Utolsó nyíl vissza
+                        </button>
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="() => StartAddThrow(Match.Player1Id.Value)">
+                            Kézi felvitel
+                        </button>
+                    </div>
+                }
+                else
+                {
+                    <div class="mt-3 d-flex gap-2 flex-wrap">
+                        <button class="btn @(p1Active ? "btn-success" : "btn-outline-secondary")"
+                                @onclick="() => StartAddThrow(Match.Player1Id.Value)">
+                            + 1 nyíl
+                        </button>
+                        <button class="btn btn-outline-danger" @onclick="() => UndoLastDart()" disabled="@IsBusy">
+                            ↩ Utolsó nyíl vissza
+                        </button>
+                    </div>
+                }
+                <hr />
+
+                <div class="fw-semibold mb-2">Dobások</div>
+                @if (p1Visits.Count == 0)
+                {
+                    <div class="text-muted">Még nincs dobás.</div>
+                }
+                else
+                {
+                    <div style="display:flex; flex-direction:column; gap:10px;">
+                        @foreach (var v in p1Visits)
+                        {
+                            <div class="visit">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <div class="fw-semibold">Visit @v.VisitNo</div>
+                                    <div class="sub">Összesen: <strong>@v.Total</strong></div>
+                                </div>
+                                <div>
+                                    @foreach (var s in v.Throws)
+                                    {
+                                        <span class="pill clickable" title="Kattints a szerkesztéshez"
+                                              @onclick="() => StartEditThrow(s.Id)">
+                                              <strong>@s.Points</strong>
+                                        </span>
+                                    }
+                                </div>
+
+                                <div class="sub mt-2">
+                                    Utolsó forrás: @v.Throws.Last().Source
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+
+        <!-- Player 2 -->
+        <div class="tablet-player-col">
+            <div class="player-card @(p2Active ? "active" : "inactive")">
+                <div class="player-header">
+                    <div>
+                        <div class="player-name">@Match.Player2.FullName</div>
+                        <div class="sub">
+                            @(p2Active ? "Ő következik" : "Várakozik")
+                        </div>
+                    </div>
+
+                    <div class="text-end">
+                        <div class="sub">Hátralévő</div>
+                        <div class="remain">@p2Remaining</div>
+                    </div>
+                </div>
+
+                @if (Match.InputMode == MatchInputMode.VisitTotal)
+                {
+                    <div class="elite-keypad-wrap">
+                        <div class="sub mb-2">Visit pont</div>
+
+                        <div class="elite-keypad-display">
+                            @(VisitTotal?.ToString() ?? "")
+                        </div>
+
+                        <div class="elite-keypad-grid">
+                            <button class="elite-keypad-btn" @onclick="() => AppendVisitDigit(1)" disabled="@(!p2Active || IsBusy)">1</button>
+                            <button class="elite-keypad-btn" @onclick="() => AppendVisitDigit(2)" disabled="@(!p2Active || IsBusy)">2</button>
+                            <button class="elite-keypad-btn" @onclick="() => AppendVisitDigit(3)" disabled="@(!p2Active || IsBusy)">3</button>
+
+                            <button class="elite-keypad-btn" @onclick="() => AppendVisitDigit(4)" disabled="@(!p2Active || IsBusy)">4</button>
+                            <button class="elite-keypad-btn" @onclick="() => AppendVisitDigit(5)" disabled="@(!p2Active || IsBusy)">5</button>
+                            <button class="elite-keypad-btn" @onclick="() => AppendVisitDigit(6)" disabled="@(!p2Active || IsBusy)">6</button>
+
+                            <button class="elite-keypad-btn" @onclick="() => AppendVisitDigit(7)" disabled="@(!p2Active || IsBusy)">7</button>
+                            <button class="elite-keypad-btn" @onclick="() => AppendVisitDigit(8)" disabled="@(!p2Active || IsBusy)">8</button>
+                            <button class="elite-keypad-btn" @onclick="() => AppendVisitDigit(9)" disabled="@(!p2Active || IsBusy)">9</button>
+
+                            <button class="elite-keypad-btn" @onclick="() => AppendVisitDigit(0)" disabled="@(!p2Active || IsBusy)">0</button>
+                            <button class="elite-keypad-btn elite-keypad-btn--warn" @onclick="BackspaceVisit" disabled="@(!p2Active || IsBusy)">←</button>
+                            <button class="elite-keypad-btn elite-keypad-btn--warn" @onclick="ClearVisit" disabled="@(!p2Active || IsBusy)">CLR</button>
+                        </div>
+
+                        <div class="elite-keypad-quick">
+                            @foreach (var v in QuickVisits)
+                            {
+                                <button class="elite-btn elite-btn--outline"
+                                        @onclick="() => SetQuickVisit(v)"
+                                        disabled="@(!p2Active || IsBusy)">
+                                    @v
+                                </button>
+                            }
+                        </div>
+
+                        <div class="mt-3">
+                            <button class="elite-btn elite-btn--green w-100"
+                                    @onclick="SubmitVisit"
+                                    disabled="@((IsBusy) || (!p2Active))">
+                                Visit mentése
+                            </button>
+                        </div>
+                    </div>
+                }
+                else if (Match.InputMode == MatchInputMode.Camera)
+                {
+                    <div class="mt-3">
+                        <button class="btn @(p2Active ? "btn-primary" : "btn-outline-secondary") w-100 py-3 fw-bold fs-5"
+                                @onclick="() => StartCameraTurn()"
+                                disabled="@(IsBusy || !p2Active || Match.PendingCheckoutConfirm)">
+                            @if (IsBusy && p2Active)
+                            {
+                                <span class="spinner-border spinner-border-sm me-2"></span>
+                                @("Kamera figyel, dobhatsz!")
+                            }
+                            else
+                            {
+                                @("Kamera indítása - Kör megkezdése")
+                            }
+                        </button>
+                        @if (p2Active && Match.PendingCheckoutConfirm)
+                        {
+                            <div class="text-danger mt-1 small">Előbb igazold vissza a kiszállót!</div>
+                        }
+                    </div>
+
+                    <div class="mt-3 d-flex gap-2 flex-wrap">
+                        <button class="btn btn-sm btn-outline-danger" @onclick="() => UndoLastDart()" disabled="@IsBusy">
+                            ↩ Utolsó nyíl vissza
+                        </button>
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="() => StartAddThrow(Match.Player2Id.Value)">
+                            Kézi felvitel
+                        </button>
+                    </div>
+                }
+                else
+                {
+                    <div class="mt-3 d-flex gap-2 flex-wrap">
+                        <button class="btn @(p2Active ? "btn-success" : "btn-outline-secondary")"
+                                @onclick="() => StartAddThrow(Match.Player2Id.Value)">
+                            + 1 nyíl
+                        </button>
+                        <button class="btn btn-outline-danger" @onclick="() => UndoLastDart()" disabled="@IsBusy">
+                            ↩ Utolsó nyíl vissza
+                        </button>
+                    </div>
+                }
+
+                <hr />
+
+                <div class="fw-semibold mb-2">Dobások</div>
+
+                @if (p2Visits.Count == 0)
+                {
+                    <div class="text-muted">Még nincs dobás.</div>
+                }
+                else
+                {
+                    <div style="display:flex; flex-direction:column; gap:10px;">
+                        @foreach (var v in p2Visits)
+                        {
+                            <div class="visit">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <div class="fw-semibold">Visit @v.VisitNo</div>
+                                    <div class="sub">Összesen: <strong>@v.Total</strong></div>
+                                </div>
+
+                                <div>
+                                    @foreach (var s in v.Throws)
+                                    {
+                                        <span class="pill clickable" title="Kattints a szerkesztéshez"
+                                              @onclick="() => StartEditThrow(s.Id)">
+                                              <strong>@s.Points</strong>
+                                        </span>
+                                    }
+                                </div>
+
+                                <div class="sub mt-2">
+                                    Utolsó forrás: @v.Throws.Last().Source
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(Error))
+    {
+        <div class="alert alert-danger mt-3">@Error</div>
+    }
+
+    @if (ShowStarterPick && Match is not null && Match.Player1 is not null && Match.Player2 is not null)
+    {
+        <div class="elite-modal-backdrop">
+            <div class="elite-modal">
+                <div class="elite-modal__header">
+                    <h3 class="elite-modal__title">Meccs indítása</h3>
+                    <div class="elite-modal__subtitle">
+                        Válaszd ki, ki kezdje az első leget és milyen beviteli módban fusson a mérkőzés.
+                    </div>
+                </div>
+
+                <div class="elite-modal__body">
+                    <div class="elite-section-title" style="margin-top:0;">Ki kezdi a mérkőzést?</div>
+
+                    <div class="elite-choice-list mb-4">
+                        <div class="elite-choice-card @(StarterPickPlayerId == Match.Player1Id.Value ? "active" : "")">
+                            <label class="elite-choice-label">
+                                <input class="form-check-input"
+                                       type="radio"
+                                       name="starter"
+                                       checked="@(StarterPickPlayerId == Match.Player1Id.Value)"
+                                       @onchange="() => StarterPickPlayerId = Match.Player1Id.Value" />
+                                <span>@Match.Player1.FullName</span>
+                            </label>
+                        </div>
+
+                        <div class="elite-choice-card @(StarterPickPlayerId == Match.Player2Id.Value ? "active" : "")">
+                            <label class="elite-choice-label">
+                                <input class="form-check-input"
+                                       type="radio"
+                                       name="starter"
+                                       checked="@(StarterPickPlayerId == Match.Player2Id.Value)"
+                                       @onchange="() => StarterPickPlayerId = Match.Player2Id.Value" />
+                                <span>@Match.Player2.FullName</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="elite-section-title">Beviteli mód</div>
+
+                    <div class="elite-mode-grid">
+                        <button type="button"
+                                class="elite-mode-btn @(StarterPickMode == MatchInputMode.Darts ? "active" : "")"
+                                @onclick="() => StarterPickMode = MatchInputMode.Darts">
+                            <span class="elite-mode-btn__title">Nyilanként</span>
+                            <span class="elite-mode-btn__desc">Minden dobás nyilanként kerül mentésre.</span>
+                        </button>
+
+                        <button type="button"
+                                class="elite-mode-btn @(StarterPickMode == MatchInputMode.VisitTotal ? "active" : "")"
+                                @onclick="() => StarterPickMode = MatchInputMode.VisitTotal">
+                            <span class="elite-mode-btn__title">Pontszám</span>
+                            <span class="elite-mode-btn__desc">A dobás körönként kerül mentésre.</span>
+                        </button>
+
+                        <button type="button"
+                                class="elite-mode-btn @(StarterPickMode == MatchInputMode.Camera ? "active" : "")"
+                                @onclick="() => StarterPickMode = MatchInputMode.Camera">
+                            <span class="elite-mode-btn__title">Kamera</span>
+                            <span class="elite-mode-btn__desc">A kamera automatikusan megpróbálja felismerni a dobásokat.</span>
+                        </button>
+                    </div>
+
+                    <div class="elite-modal-note">
+                        A következő legek automatikusan váltott kezdéssel mennek.
+                    </div>
+                </div>
+
+                <div class="elite-modal__footer">
+                    <button class="elite-btn elite-btn--outline" @onclick="Back">Mégse</button>
+                    <button class="elite-btn elite-btn--green" @onclick="ConfirmStarterAndStart" disabled="@IsBusy">
+                        @(IsBusy ? "Indítás..." : "Meccs indítása")
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (Match?.PendingCheckoutConfirm == true && Match.PendingCheckoutWinnerPlayerId is not null)
+    {
+        var winnerName = (Match.PendingCheckoutWinnerPlayerId == Match.Player1Id)
+            ? Match.Player1!.FullName
+            : Match.Player2!.FullName;
+
+        <div class="elite-modal-backdrop" style="z-index:2500;">
+            <div class="elite-modal">
+                <div class="elite-modal__header">
+                    <h3 class="elite-modal__title">Checkout</h3>
+                    <div class="elite-modal__subtitle">
+                        <strong>@winnerName</strong> kiszállt <strong>@PendingCheckoutScore</strong> pontról.
+                        Erősítsd meg a leg lezárását.
+                    </div>
+                </div>
+
+                <div class="elite-modal__body">
+                    <div class="elite-section-title" style="margin-top:0;">
+                        Hányadik nyíllal dobta meg a kiszállót?
+                    </div>
+
+                    @if (!CanCheckoutIn1 && !CanCheckoutIn2 && !CanCheckoutIn3)
+                    {
+                        <div class="alert alert-danger">
+                            Erről az értékről (@PendingCheckoutScore) nem lehetséges szabályos kiszálló.
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="d-flex gap-2 flex-wrap">
+                            @if (CanCheckoutIn1)
+                            {
+                                <button type="button"
+                                        class="elite-btn @(CheckoutDartNo == 1 ? "elite-btn--green" : "elite-btn--outline")"
+                                        @onclick="() => CheckoutDartNo = 1">
+                                    1. nyíl
+                                </button>
+                            }
+
+                            @if (CanCheckoutIn2)
+                            {
+                                <button type="button"
+                                        class="elite-btn @(CheckoutDartNo == 2 ? "elite-btn--green" : "elite-btn--outline")"
+                                        @onclick="() => CheckoutDartNo = 2">
+                                    2. nyíl
+                                </button>
+                            }
+
+                            @if (CanCheckoutIn3)
+                            {
+                                <button type="button"
+                                        class="elite-btn @(CheckoutDartNo == 3 ? "elite-btn--green" : "elite-btn--outline")"
+                                        @onclick="() => CheckoutDartNo = 3">
+                                    3. nyíl
+                                </button>
+                            }
+                        </div>
+                    }
+                </div>
+
+                <div class="elite-modal__footer">
+                    <button class="elite-btn elite-btn--outline" @onclick="CancelCheckout" disabled="@IsBusy">
+                        Mégse
+                    </button>
+                    <button class="elite-btn elite-btn--green"
+                            @onclick="ConfirmCheckout"
+                            disabled="@IsBusy">
+                        Leg lezárása
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(LastActionInfo))
+    {
+        <div class="alert alert-info mt-2">@LastActionInfo</div>
+    }
+
+    @if (EditOpen)
+    {
+        <div class="elite-modal-backdrop" style="z-index:3000;">
+            <div class="elite-modal" style="max-width:420px;">
+                <div class="elite-modal__header">
+                    <h3 class="elite-modal__title">
+                        @(IsVisitEditMode ? "Kör szerkesztése" : "Dobás szerkesztése")
+                    </h3>
+                    <div class="elite-modal__subtitle">
+                        @EditHeader
+                    </div>
+                </div>
+
+                <div class="elite-modal__body">
+                    @if (IsVisitEditMode)
+                    {
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">Kör pontszám</label>
+                            <input class="form-control elite-input"
+                                   type="number"
+                                   min="0"
+                                   max="180"
+                                   @bind="EditVisitPoints" />
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">Ring</label>
+                            <select class="form-select elite-input" style="height:46px;" @bind="EditRing">
+                                <option value="S">Single</option>
+                                <option value="D">Double</option>
+                                <option value="T">Triple</option>
+                                <option value="25">25</option>
+                                <option value="BULL">Bull</option>
+                            </select>
+                        </div>
+
+                        @if (EditRing is "S" or "D" or "T")
+                        {
+                            <div class="mb-3">
+                                <label class="form-label fw-semibold">Sector</label>
+                                <input class="form-control elite-input"
+                                       type="number"
+                                       min="0"
+                                       max="20"
+                                       @bind="EditSector" />
+                            </div>
+                        }
+
+                        <div class="elite-choice-card active">
+                            <div class="fw-semibold">Preview</div>
+                            <div class="mt-1">@PreviewPoints pont</div>
+                        </div>
+                    }
+                </div>
+
+                <div class="elite-modal__footer" style="justify-content:space-between;">
+                    <div class="d-flex gap-2 flex-wrap">
+                        <button class="elite-btn elite-btn--outline" @onclick="CloseEdit">
+                            Mégse
+                        </button>
+
+                        @if (IsEditExisting)
+                        {
+                            <button class="elite-btn elite-btn--red" @onclick="DeleteEdit">
+                                Törlés
+                            </button>
+                        }
+                    </div>
+
+                    <button class="elite-btn elite-btn--green" @onclick="SaveEdit">
+                        Mentés
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (ShowMatchFinishConfirm && MatchStats is not null)
+    {
+        <div class="elite-modal-backdrop" style="z-index:2600;">
+            <div class="elite-modal">
+                <div class="elite-modal__header">
+                    <h3 class="elite-modal__title">Mérkőzés vége</h3>
+                    <div class="elite-modal__subtitle">
+                        @MatchFinishText
+                    </div>
+                </div>
+
+                <div class="elite-modal__body">
+                    <div class="elite-modal-note">
+                        Megerősítés után megjelennek a mérkőzés statisztikái.
+                    </div>
+                </div>
+
+                <div class="elite-modal__footer">
+                    <button class="elite-btn elite-btn--outline" @onclick="(() => ShowMatchFinishConfirm = false)">
+                        Mégse
+                    </button>
+                    <button class="elite-btn elite-btn--green" @onclick="ConfirmMatchFinish">
+                        Megerősítés
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (ShowMatchStatsModal && MatchStats is not null)
+    {
+        <div class="elite-modal-backdrop" style="z-index:2700;">
+            <div class="elite-modal" style="max-width:760px;">
+                <div class="elite-modal__header">
+                    <h3 class="elite-modal__title">Mérkőzés statisztikái</h3>
+                    <div class="elite-modal__subtitle">
+                        @MatchStats.WinnerName győzött • @MatchStats.FinalScoreText
+                    </div>
+                </div>
+
+                <div class="elite-modal__body">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Mutató</th>
+                                <th>@MatchStats.Player1Name</th>
+                                <th>@MatchStats.Player2Name</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>Körátlag</td>
+                                <td>@MatchStats.Player1ThreeDartAverage.ToString("0.00")</td>
+                                <td>@MatchStats.Player2ThreeDartAverage.ToString("0.00")</td>
+                            </tr>
+                            <tr>
+                                <td>Első 9 nyilas átlag</td>
+                                <td>@MatchStats.Player1First9Average.ToString("0.00")</td>
+                                <td>@MatchStats.Player2First9Average.ToString("0.00")</td>
+                            </tr>
+                            <tr>
+                                <td>Legnagyobb kiszálló</td>
+                                <td>@MatchStats.Player1HighestCheckout</td>
+                                <td>@MatchStats.Player2HighestCheckout</td>
+                            </tr>
+                            <tr>
+                                <td>180 dobások</td>
+                                <td>@MatchStats.Player1180Count</td>
+                                <td>@MatchStats.Player2180Count</td>
+                            </tr>
+                            <tr>
+                                <td>140+ dobások</td>
+                                <td>@MatchStats.Player1140PlusCount</td>
+                                <td>@MatchStats.Player2140PlusCount</td>
+                            </tr>
+                            <tr>
+                                <td>100+ dobások</td>
+                                <td>@MatchStats.Player1100PlusCount</td>
+                                <td>@MatchStats.Player2100PlusCount</td>
+                            </tr>
+                            <tr>
+                                <td>Legrövidebb leg</td>
+                                <td>@(MatchStats.Player1ShortestLegDarts == 0 ? "-" : $"{MatchStats.Player1ShortestLegDarts} nyíl")</td>
+                                <td>@(MatchStats.Player2ShortestLegDarts == 0 ? "-" : $"{MatchStats.Player2ShortestLegDarts} nyíl")</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="elite-modal__footer">
+                    <button class="elite-btn elite-btn--green" @onclick="GoBackToTabletHome">
+                        Tovább
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+}
+
+
+
+@code {
+    [Parameter] public int TournamentId { get; set; }
+    [Parameter] public int BoardNo { get; set; }
+    [Parameter] public int MatchId { get; set; }
+
+    private bool IsLoading = true;
+    private bool IsBusy = false;
+    private string? Error;
+
+    private Match? Match;
+    private Board? Board;
+    private List<Score> Scores = new();
+
+    private bool EditOpen = false;
+    private bool IsEditExisting = false;
+    private bool ShowStarterPick = false;
+    private int StarterPickPlayerId = 0;
+    private int? EditingScoreId = null;
+    private int? AddPlayerId = null;
+    private int? EditOwnerPlayerId = null;
+    private MatchInputMode StarterPickMode = MatchInputMode.Darts;
+
+    private bool IsVisitEditMode = false;
+    private int EditVisitPoints = 60;
+
+    private int PendingCheckoutScore => GetPendingCheckoutScore();
+
+    private bool CanCheckoutIn1 => IsCheckoutPossibleExactly(PendingCheckoutScore, 1);
+    private bool CanCheckoutIn2 => IsCheckoutPossibleExactly(PendingCheckoutScore, 2);
+    private bool CanCheckoutIn3 => IsCheckoutPossibleExactly(PendingCheckoutScore, 3);
+
+    private string _editRing = "S";
+    private string EditRing
+    {
+        get => _editRing;
+        set
+        {
+            _editRing = (value ?? "S").ToUpperInvariant();
+
+            if (_editRing is "25" or "BULL")
+                EditSector = null;
+            else if (EditSector is null)
+                EditSector = 20;
+        }
+    }
+    private int? EditSector = 20;
+
+    private string EditHeader = "";
+    private int PreviewPoints => ScoreService.CalculatePoints(EditRing, EditSector);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Load();
+    }
+
+    private int? VisitTotal = null;
+
+    private async Task SubmitVisit()
+    {
+        if (Match is null) return;
+
+        Error = null;
+        IsBusy = true;
+
+        try
+        {
+            var total = VisitTotal ?? 0;
+            var result = await MatchPlayService.AddVisitTotalAsync(MatchId, total, ThrowSource.Manual);
+
+            VisitTotal = null;
+            await Load();
+        }
+        catch (Exception ex)
+        {
+            Error = ex.Message;
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private List<int> QuickVisits = new() { 26, 41, 45, 60, 85, 100, 140, 180 };
+
+    private void AppendVisitDigit(int digit)
+    {
+        var current = VisitTotal?.ToString() ?? "";
+        var next = current + digit.ToString();
+
+        if (int.TryParse(next, out var value) && value <= 180)
+            VisitTotal = value;
+    }
+
+    private void BackspaceVisit()
+    {
+        var current = VisitTotal?.ToString() ?? "";
+        if (string.IsNullOrEmpty(current))
+            return;
+
+        current = current[..^1];
+
+        if (string.IsNullOrEmpty(current))
+            VisitTotal = null;
+        else if (int.TryParse(current, out var value))
+            VisitTotal = value;
+    }
+
+    private void ClearVisit()
+    {
+        VisitTotal = null;
+    }
+
+    private void SetQuickVisit(int value)
+    {
+        VisitTotal = value;
+    }
+
+
+    private async Task StartCameraTurn()
+    {
+        if (Match is null) return;
+
+        Error = null;
+        IsBusy = true;
+        StateHasChanged();
+
+        try
+        {
+            var cvResult = await CvService.ScanVisitAsync();
+
+            if (cvResult == null || !cvResult.Ok)
+                throw new Exception(cvResult?.Message ?? "Nem érkezett válasz a kamerától.");
+
+            if (cvResult.Darts.Count == 0)
+            {
+                LastActionInfo = "A kamera nem érzékelt egyetlen dobást sem.";
+                return;
+            }
+
+            var result = await MatchPlayService.AddCvVisitAsync(MatchId, cvResult.Darts);
+
+            LastActionInfo = result switch
+            {
+                "BUST" => "Kamera: bust",
+                "CHECKOUT_PENDING" => "Kamera: checkout érzékelve",
+                "MATCH_FINISHED" => "Kamera: meccs vége",
+                _ => $"Kamera visit mentve ({cvResult.Darts.Count(d => d.Found)} dobás)"
+            };
+
+            await Load();
+
+            if (result == "MATCH_FINISHED")
+            {
+                await PrepareMatchFinishAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            Error = $"Kamera hiba: {ex.Message}";
+        }
+        finally
+        {
+            IsBusy = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task Load()
+    {
+        Error = null;
+        IsLoading = true;
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+
+        Board = await db.Boards
+            .FirstOrDefaultAsync(b => b.TournamentId == TournamentId && b.BoardNumber == BoardNo);
+
+        Match = await db.Matches
+            .Where(m => m.Id == MatchId && m.TournamentId == TournamentId)
+            .Include(m => m.Player1)
+            .Include(m => m.Player2)
+            .FirstOrDefaultAsync();
+
+        if (Match is null || Board is null || Match.BoardId != Board.Id)
+        {
+            IsLoading = false;
+            return;
+        }
+
+        var legNo = Match.CurrentLegNo;
+        Scores = await db.Scores
+            .Where(s => s.MatchId == MatchId && s.LegNo == legNo && s.SetNo == 1)
+            .OrderBy(s => s.CreatedAt)
+            .ThenBy(s => s.Id)
+            .ToListAsync();
+
+        if (Match.PendingCheckoutConfirm)
+        {
+            NormalizeCheckoutDartNo();
+        }
+
+        IsLoading = false;
+
+        if (Match.Status == MatchStatus.Pending
+            && Match.LegStarterPlayerId is null
+            && Match.Player1Id is not null
+            && Match.Player2Id is not null)
+        {
+            ShowStarterPick = true;
+            StarterPickPlayerId = Match.Player1Id.Value;
+            StarterPickMode = MatchInputMode.Darts;
+        }
+        else
+        {
+            ShowStarterPick = false;
+        }
+    }
+
+    private void Back() => Nav.NavigateTo($"/tablet/{TournamentId}/{BoardNo}");
+
+    private string FormatThrow(Score s)
+    {
+        var ring = (s.Ring ?? "").ToUpperInvariant();
+        return ring switch
+        {
+            "BULL" => "Bull",
+            "25" => "25",
+            "S" => $"Szimpla {s.Sector}",
+            "D" => $"Dupla {s.Sector}",
+            "T" => $"Tripla {s.Sector}",
+            _ => $"{s.Ring} {s.Sector}"
+        };
+    }
+
+    private string FormatThrowShort(Score s)
+    {
+        var ring = (s.Ring ?? "").ToUpperInvariant();
+        return ring switch
+        {
+            "VISIT" => $"V{s.Points}",
+            "BULL" => "BULL",
+            "25" => "25",
+            "S" => $"S{s.Sector}",
+            "D" => $"D{s.Sector}",
+            "T" => $"T{s.Sector}",
+            _ => $"{ring}{s.Sector}"
+        };
+    }
+
+    private int GetRemaining(int playerId)
+    {
+        if (Match is null) return 501;
+        if (Match.Player1Id == playerId) return Match.P1Remaining;
+        if (Match.Player2Id == playerId) return Match.P2Remaining;
+        return 501;
+    }
+
+    private int GetCurrentThrowerId()
+    {
+
+        if (Match is null || Match.Player1Id is null || Match.Player2Id is null)
+            return 0;
+
+        if (Match.CurrentPlayerId is not null)
+            return Match.CurrentPlayerId.Value;
+
+        var p1 = Match.Player1Id.Value;
+        var p2 = Match.Player2Id.Value;
+
+        var p1Darts = Scores.Count(s => s.PlayerId == p1);
+        var p2Darts = Scores.Count(s => s.PlayerId == p2);
+
+        var p1Visits = p1Darts / 3;
+        var p2Visits = p2Darts / 3;
+
+        if (p1Visits == p2Visits)
+        {
+            var p1InVisit = p1Darts % 3;
+            return (p1InVisit < 3) ? p1 : p2;
+        }
+
+        return (p1Visits > p2Visits) ? p2 : p1;
+    }
+
+    private List<VisitVm> GetVisits(int playerId)
+    {
+        var list = Scores
+            .Where(s => s.PlayerId == playerId)
+            .OrderBy(s => s.CreatedAt)
+            .ThenBy(s => s.Id)
+            .ToList();
+
+        if (list.Any(x => (x.Ring ?? "").ToUpperInvariant() == "VISIT"))
+        {
+            var visitList = new List<VisitVm>();
+            var no = 1;
+
+            foreach (var s in list)
+            {
+                visitList.Add(new VisitVm
+                {
+                    VisitNo = no++,
+                    Throws = new List<Score> { s },
+                    Total = s.Points
+                });
+            }
+            return visitList;
+        }
+
+        var visits = new List<VisitVm>();
+        var visitNo = 1;
+
+        for (int i = 0; i < list.Count; i += 3)
+        {
+            var chunk = list.Skip(i).Take(3).ToList();
+            visits.Add(new VisitVm
+            {
+                VisitNo = visitNo++,
+                Throws = chunk,
+                Total = chunk.Sum(x => x.Points)
+            });
+        }
+        return visits;
+    }
+
+    private class VisitVm
+    {
+        public int VisitNo { get; set; }
+        public List<Score> Throws { get; set; } = new();
+        public int Total { get; set; }
+    }
+
+    private void StartEditThrow(int scoreId)
+    {
+        Error = null;
+        var s = Scores.FirstOrDefault(x => x.Id == scoreId);
+        if (s is null) return;
+
+        EditOpen = true;
+        IsEditExisting = true;
+        EditingScoreId = scoreId;
+        AddPlayerId = null;
+        EditOwnerPlayerId = s.PlayerId;
+
+        var ring = (s.Ring ?? "S").ToUpperInvariant();
+        IsVisitEditMode = ring == "VISIT";
+
+        if (IsVisitEditMode)
+        {
+            EditVisitPoints = s.Points;
+            EditHeader = $"Jelenlegi visit: {s.Points} pont • Forrás: {s.Source}";
+        }
+        else
+        {
+            EditRing = ring;
+            EditSector = s.Sector;
+            EditHeader = $"Jelenlegi: {FormatThrow(s)} ({s.Points} pont) • Forrás: {s.Source}";
+        }
+        StateHasChanged();
+    }
+
+    private void StartAddThrow(int playerId)
+    {
+        Error = null;
+        EditOpen = true;
+        IsEditExisting = false;
+        EditingScoreId = null;
+        AddPlayerId = playerId;
+        EditOwnerPlayerId = playerId;
+
+        IsVisitEditMode = Match?.InputMode == MatchInputMode.VisitTotal;
+
+        var name = (Match!.Player1Id == playerId) ? Match.Player1!.FullName : Match.Player2!.FullName;
+
+        if (IsVisitEditMode)
+        {
+            EditVisitPoints = 60;
+            EditHeader = $"Új visit felvitele: {name}";
+        }
+        else
+        {
+            EditRing = "S";
+            EditSector = 20;
+            EditHeader = $"Új dobás felvitele: {name}";
+        }
+        StateHasChanged();
+    }
+
+    private void CloseEdit()
+    {
+        EditOpen = false;
+        IsEditExisting = false;
+        EditingScoreId = null;
+        AddPlayerId = null;
+        EditOwnerPlayerId = null;
+        IsVisitEditMode = false;
+        EditVisitPoints = 60;
+    }
+
+    private string? LastActionInfo;
+
+    private bool ShowMatchFinishConfirm = false;
+    private bool ShowMatchStatsModal = false;
+    private MatchStatsDto? MatchStats;
+    private string? MatchFinishText;
+
+    private async Task SaveEdit()
+{
+    Error = null;
+    IsBusy = true;
+
+    try
+    {
+        if (IsVisitEditMode)
+        {
+            if (EditVisitPoints < 0 || EditVisitPoints > 180)
+                throw new Exception("A kör pontszáma 0 és 180 között lehet.");
+
+            if (IsEditExisting)
+            {
+                    await using var db = await DbFactory.CreateDbContextAsync();
+
+                    if (EditingScoreId is not int editingScoreId)
+                        throw new Exception("Nincs kiválasztott visit rekord.");
+
+                    var score = await db.Scores.FirstOrDefaultAsync(s => s.Id == editingScoreId);
+                    if (score is null)
+                        throw new Exception("A visit rekord nem található.");
+
+                    score.Ring = "VISIT";
+                    score.Sector = null;
+                    score.Points = EditVisitPoints;
+                    score.Source = ThrowSource.Manual;
+
+                    await db.SaveChangesAsync();
+                    await MatchPlayService.RebuildCurrentLegStateAsync(MatchId);
+            }
+            else
+            {
+                if (AddPlayerId is null) return;
+
+                var result = await MatchPlayService.AddVisitTotalAsync(MatchId, EditVisitPoints, ThrowSource.Manual);
+                LastActionInfo = result;
+            }
+        }
+        else
+        {
+            if (EditRing is "S" or "D" or "T")
+            {
+                if (EditSector is null or < 1 or > 20)
+                    throw new Exception("Szimpla/dupla/tripla esetén kötelező 1-20 közötti szektort választani.");
+            }
+            else
+            {
+                EditSector = null;
+            }
+
+            if (IsEditExisting)
+            {
+                if (EditingScoreId is null) return;
+                await ScoreService.UpdateThrowAsync(EditingScoreId.Value, EditRing, EditSector);
+                await MatchPlayService.RebuildCurrentLegStateAsync(MatchId);
+            }
+            else
+            {
+                if (AddPlayerId is null) return;
+                var result = await MatchPlayService.AddThrowAsync(MatchId, EditRing, EditSector, ThrowSource.Manual);
+                LastActionInfo = result;
+            }
+        }
+        await Load();
+        CloseEdit();
+    }
+    catch (Exception ex)
+    {
+        Error = ex.Message;
+    }
+    finally
+    {
+        IsBusy = false;
+    }
+}
+
+    private async Task DeleteEdit()
+    {
+        if (!IsEditExisting || EditingScoreId is null) return;
+
+        Error = null;
+        IsBusy = true;
+
+        try
+        {
+            await ScoreService.DeleteThrowAsync(EditingScoreId.Value);
+            await MatchPlayService.RebuildCurrentLegStateAsync(MatchId);
+            await Load();
+            CloseEdit();
+        }
+        catch (Exception ex)
+        {
+            Error = ex.Message;
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private async Task ConfirmStarterAndStart()
+    {
+        if (Match is null) return;
+
+        Error = null;
+        IsBusy = true;
+
+        try
+        {
+            await MatchPlayService.StartMatchAsync(MatchId, StarterPickPlayerId, StarterPickMode);
+            ShowStarterPick = false;
+            await Load();
+        }
+        catch (Exception ex)
+        {
+            Error = ex.Message;
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private async Task UndoLastDart()
+    {
+        if (Match is null) return;
+
+        Error = null;
+        IsBusy = true;
+
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+
+            var last = await db.Scores
+                .Where(s => s.MatchId == MatchId && s.SetNo == 1 && s.LegNo == Match.CurrentLegNo)
+                .OrderByDescending(s => s.CreatedAt)
+                .ThenByDescending(s => s.Id)
+                .FirstOrDefaultAsync();
+
+            if (last is null) return;
+
+            await ScoreService.DeleteThrowAsync(last.Id);
+            await MatchPlayService.RebuildCurrentLegStateAsync(MatchId);
+
+            await Load();
+        }
+        catch (Exception ex)
+        {
+            Error = ex.Message;
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private int CheckoutDartNo = 3;
+
+    private async Task ConfirmCheckout()
+    {
+        if (Match is null) return;
+
+        Error = null;
+        IsBusy = true;
+
+        try
+        {
+            await MatchPlayService.ConfirmCheckoutAsync(MatchId, CheckoutDartNo);
+            await Load();
+
+            if (Match?.Status == MatchStatus.Finished)
+            {
+                await PrepareMatchFinishAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            Error = ex.Message;
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private async Task CancelCheckout()
+    {
+        if (Match is null) return;
+
+        Error = null;
+        IsBusy = true;
+
+        try
+        {
+            await MatchPlayService.CancelCheckoutAsync(MatchId);
+            await Load();
+        }
+        catch (Exception ex)
+        {
+            Error = ex.Message;
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private async Task PrepareMatchFinishAsync()
+    {
+        if (Match is null) return;
+
+        MatchStats = await MatchStatisticsService.BuildMatchStatsAsync(MatchId);
+
+        MatchFinishText = $"{MatchStats.WinnerName} nyerte a mérkőzést {MatchStats.FinalScoreText} arányban.";
+        ShowMatchFinishConfirm = true;
+    }
+
+    private Task ConfirmMatchFinish()
+    {
+        ShowMatchFinishConfirm = false;
+        ShowMatchStatsModal = true;
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    private void GoBackToTabletHome()
+    {
+        Nav.NavigateTo($"/tablet/{TournamentId}/{BoardNo}");
+    }
+
+    private int GetPendingCheckoutScore()
+    {
+        if (Match is null || Match.PendingCheckoutWinnerPlayerId is null)
+            return 0;
+
+        var winnerId = Match.PendingCheckoutWinnerPlayerId.Value;
+
+        // VISIT módnál a visit eleji maradék maga a checkout érték
+        if (Match.InputMode == MatchInputMode.VisitTotal)
+            return Match.VisitStartRemaining;
+
+        var legScores = Scores
+            .Where(s => s.LegNo == Match.CurrentLegNo && s.PlayerId == winnerId)
+            .OrderBy(s => s.CreatedAt)
+            .ThenBy(s => s.Id)
+            .ToList();
+
+        if (legScores.Count == 0)
+            return 0;
+
+        int remaining = 501;
+        int dartsInVisit = 0;
+        int visitStartRemaining = 501;
+
+        foreach (var s in legScores)
+        {
+            var ring = (s.Ring ?? "").ToUpperInvariant();
+
+            if (ring == "VISIT")
+                continue;
+
+            if (dartsInVisit == 0)
+                visitStartRemaining = remaining;
+
+            var pts = s.Points;
+            var after = remaining - pts;
+
+            bool isDoubleOut = ring == "D" || ring == "BULL";
+            bool isCheckout = after == 0 && isDoubleOut;
+            bool isBust = after < 0 || after == 1 || (after == 0 && !isDoubleOut);
+
+            if (isCheckout)
+            {
+                return remaining;
+            }
+
+            dartsInVisit++;
+
+            if (isBust)
+            {
+                remaining = visitStartRemaining;
+                dartsInVisit = 0;
+                continue;
+            }
+
+            remaining = after;
+
+            if (dartsInVisit >= 3)
+                dartsInVisit = 0;
+        }
+
+        return Match.VisitStartRemaining > 0 ? Match.VisitStartRemaining : 0;
+    }
+
+    private static bool IsCheckoutPossibleExactly(int score, int darts)
+    {
+        if (score <= 1 || score > 170)
+            return false;
+
+        var allScores = GetAllSingleDartScores().ToArray();
+        var finishingScores = GetFinishingDartScores().ToArray();
+
+        return darts switch
+        {
+            1 => finishingScores.Contains(score),
+
+            2 => allScores.Any(a => finishingScores.Contains(score - a)),
+
+            3 => allScores.Any(a => allScores.Any(b => finishingScores.Contains(score - a - b))),
+
+            _ => false
+        };
+    }
+
+    private static HashSet<int> GetAllSingleDartScores()
+    {
+        var result = new HashSet<int> { 0 };
+
+        for (int i = 1; i <= 20; i++)
+        {
+            result.Add(i);
+            result.Add(i * 2);
+            result.Add(i * 3);
+        }
+
+        result.Add(25);
+        result.Add(50);
+
+        return result;
+    }
+
+    private static HashSet<int> GetFinishingDartScores()
+    {
+        var result = new HashSet<int>();
+
+        for (int i = 1; i <= 20; i++)
+            result.Add(i * 2);
+
+        result.Add(50);
+
+        return result;
+    }
+
+    private void NormalizeCheckoutDartNo()
+    {
+        if (CanCheckoutIn1)
+            CheckoutDartNo = 1;
+        else if (CanCheckoutIn2)
+            CheckoutDartNo = 2;
+        else if (CanCheckoutIn3)
+            CheckoutDartNo = 3;
+        else
+            CheckoutDartNo = 3;
+    }
+
+
+    private async Task QuickVisitAndSubmit(int value)
+    {
+        VisitTotal = value;
+        await SubmitVisit();
+    }
+}
+
